@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ice Cream Sales Prediction</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" crossorigin="anonymous" />
+    <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+    <header class="navbar navbar-expand-lg navbar-dark bg-gradient mb-4">
+        <a class="navbar-brand" href="#">🍨 Ice Cream Predictor</a>
+        <span class="navbar-text ml-auto">Fast predictions • Clean UI</span>
+    </header>
+
+    <main class="container">
+        <div class="row justify-content-center">
+            <div class="col-lg-7">
+                <div class="card shadow-lg glass-card">
+                    <div class="card-body">
+                        <h2 class="card-title text-primary">Predict Sales from Temperature</h2>
+                        <p class="text-muted">Use the trained linear regression model for quick and accurate forecast.</p>
+
+                        {% if error %}
+                            <div class="alert alert-danger" id="feedback">{{ error }}</div>
+                        {% endif %}
+
+                        {% if message %}
+                            <div class="alert alert-success" id="feedback">{{ message }}</div>
+                        {% endif %}
+
+                        <form id="predict-form" action="/predict" method="post" class="mb-3">
+                            <div class="row">
+                                <div class="form-group col-md-6">
+                                    <label for="temperature">Temperature (°F)</label>
+                                    <input type="number" step="0.1" class="form-control" id="temperature" name="temperature" placeholder="e.g. 65.2" value="{{ input_temperature or '' }}" required autofocus>
+                                </div>
+                                <div class="form-group col-md-6">
+                                    <label for="rainfall">Rainfall (inches)</label>
+                                    <input type="number" step="0.01" class="form-control" id="rainfall" name="rainfall" placeholder="e.g. 0.24" value="{{ input_rainfall or '' }}" required>
+                                </div>
+                            </div>
+                            <button type="submit" class="btn btn-primary btn-block">Predict Sales</button>
+                        </form>
+
+                        <div class="row mb-3">
+                            <div class="col">
+                                <button id="predict-ajax" type="button" class="btn btn-info btn-block">Predict via API (AJAX)</button>
+                            </div>
+                            <div class="col">
+                                <form action="/train" method="post">
+                                    <button type="submit" class="btn btn-outline-secondary btn-block">Retrain Model</button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div class="result-box mt-4 p-3 rounded shadow-sm">
+                            {% if prediction_text %}
+                                <h5 class="mb-2">{{ prediction_text }}</h5>
+                            {% else %}
+                                <h5 class="mb-2">No prediction yet</h5>
+                            {% endif %}
+                            {% if r2_score is not none %}
+                                <p class="mb-0">Model Accuracy (R²): <strong>{{ '%.4f' % r2_score }}</strong></p>
+                            {% endif %}
+                        </div>
+
+                        <div class="mt-4">
+                            <h5>Sales vs Temperature</h5>
+                            <img src="/plot.png" alt="Scatter plot with regression line" class="img-fluid rounded border" />
+                        </div>
+
+                        <div class="mt-4">
+                            <h5>Dataset Sample</h5>
+                            <div class="alert alert-secondary" id="loading-data">Loading data preview...</div>
+                            <table class="table table-sm table-hover" id="data-table" style="display:none;">
+                                <thead><tr><th>Date</th><th>DayOfWeek</th><th>Month</th><th>Temperature</th><th>Rainfall</th><th>IceCreamsSold</th></tr></thead>
+                                <tbody></tbody>
+                            </table>
+                            <p class="small text-muted">Showing 10 sample rows from dataset.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // Clear messages after 4 seconds
+        window.addEventListener('DOMContentLoaded', () => {
+            const feedback = document.getElementById('feedback');
+            if (feedback) {
+                setTimeout(() => feedback.style.display = 'none', 4000);
+            }
+
+            fetch('/data')
+                .then(res => res.json())
+                .then(res => {
+                    const table = document.getElementById('data-table');
+                    const body = table.querySelector('tbody');
+                    if (res.samples && res.samples.length > 0) {
+                        res.samples.forEach(row => {
+                            const tr = document.createElement('tr');
+                            tr.innerHTML = `
+                                <td>${row.Date}</td>
+                                <td>${row.DayOfWeek}</td>
+                                <td>${row.Month}</td>
+                                <td>${row.Temperature}</td>
+                                <td>${row.Rainfall}</td>
+                                <td>${row.IceCreamsSold}</td>
+                            `;
+                            body.appendChild(tr);
+                        });
+                        document.getElementById('loading-data').style.display = 'none';
+                        table.style.display = 'table';
+                    } else {
+                        document.getElementById('loading-data').innerText = 'No data available.';
+                    }
+                })
+                .catch(() => {
+                    document.getElementById('loading-data').innerText = 'Failed to load sample data.';
+                });
+
+            const ajaxButton = document.getElementById('predict-ajax');
+            ajaxButton.addEventListener('click', async () => {
+                const temp = document.getElementById('temperature').value;
+                const rainfall = document.getElementById('rainfall').value;
+                if (!temp || !rainfall) {
+                    alert('Please enter temperature and rainfall first.');
+                    return;
+                }
+
+                const result = await fetch('/api/predict', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ temperature: parseFloat(temp), rainfall: parseFloat(rainfall) })
+                }).then(r => r.json());
+
+                if (result.error) {
+                    alert('Error: ' + result.error);
+                    return;
+                }
+
+                const feedbackEl = document.getElementById('feedback');
+                if (feedbackEl) {
+                    feedbackEl.textContent = `Predicted Sales: ${result.predicted_sales} (R²=${result.r2_score})`;
+                    feedbackEl.className = 'alert alert-info';
+                    feedbackEl.style.display = 'block';
+                    setTimeout(() => feedbackEl.style.display = 'none', 5000);
+                }
+            });
+        });
+    </script>
+</body>
+</html>
